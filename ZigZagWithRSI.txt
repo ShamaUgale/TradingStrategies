@@ -1,0 +1,121 @@
+//@version=1
+
+// This indicator adds to the functionality of Tr0sT's Zig Zag High Low Indicator 
+// by adding the RSI value above the higher-high to eyeball whether the current 
+// trend (signified by consecutive higher-highs and higher lows or consecutive 
+// lower highs and lower lows) is strengthening or weakening. 
+
+// THEORY / METHODOLOGY: If the uptrend is 
+// strong, the later pivot high will have a greater RSI number than the previous 
+// pivot high indicating an opportunity to go long. In a downtrend the lower high 
+// should have a lower RSI than the previous lower high indicating an opportunity 
+// to go short. If it does not, it is an indication that the trend is weakening.
+
+// ACTION: If the ZigZag has higher highs and Higher lows and a strengthening RSI, 
+// look for Long opportunities on the lower time frame. 
+// If the ZigZag has lower highs and lower lows and a weakening RSI, 
+// look for Short opportunities on the lower time frame. 
+
+// USAGE: This methodology works best and produces the most opportunities when 
+// the markets are active, i.e. between 9.15AM-3.30PM IST
+
+// Thanks to Tr0sT for the original ZigZag High-Low indicator. 
+// Tr0sT: https://www.tradingview.com/u/Tr0sT/#published-scripts
+// Zig Zag High Low Indicator: https://www.tradingview.com/script/I2xTwDzy-Zig-Zag-High-Low/
+
+study("Zig Zag HL+RSI", overlay = true)
+
+length = input(4, title = "High/Low Length")
+rsiLength = input(title="RSI Length", type=input.integer, defval=14)
+
+color rsiLabelUpColor   = input(color.green, "RSI Color Up",   type = input.color)
+color rsiLabelDownColor = input(color.red,   "RSI Color Down", type = input.color)
+
+h = highest(high, length * 2 + 1)
+l = lowest(low, length * 2 + 1)
+f_isMin(len) => 
+    l == low[len]
+f_isMax(len) => 
+    h == high[len]
+
+var dirUp = false
+var lastLow = high * 100
+var lastHigh = 0.0
+var timeLow = bar_index
+var timeHigh = bar_index
+var line li = na
+
+// Variable to store the RSI of the previous pivot high to note whether the RSI is going up or down 
+var rsiLastVal = 0.0
+
+// Initialize a var to store the value of the RSI of the Pivot High
+var rsiVal = 0
+
+// Get the RSI Value and round to the nearest integer, 
+// otherwise the value in the lable is printed to the 10th decimal place
+rsiVal := round((rsi(close, rsiLength))[length])
+
+f_drawLine() =>
+    _li_color = dirUp ? color.teal : color.orange
+    line.new(
+         timeHigh - length, lastHigh, 
+         timeLow - length, lastLow, 
+         xloc.bar_index, color=_li_color, width=2
+         )
+    
+if dirUp
+
+    if (f_isMin(length) and low[length] < lastLow)
+        lastLow := low[length]
+        timeLow := bar_index
+        line.delete(li)
+        li := f_drawLine()
+
+
+    if (f_isMax(length) and high[length] > lastLow)
+        lastHigh := high[length]
+        timeHigh := bar_index
+        dirUp := false
+        li := f_drawLine()
+        
+        if rsiLastVal < rsiVal
+            label.new(timeHigh-length, na, text=tostring(rsiVal), color=rsiLabelUpColor, textcolor=color.white, style=label.style_label_down, yloc=yloc.abovebar)
+        else
+            label.new(timeHigh-length, na, text=tostring(rsiVal), color=rsiLabelDownColor, textcolor=color.white, style=label.style_label_down, yloc=yloc.abovebar)
+        
+        rsiLastVal := rsiVal
+
+if not dirUp
+    if (f_isMax(length) and high[length] > lastHigh)
+        lastHigh := high[length]
+        timeHigh := bar_index
+        line.delete(li)
+        li := f_drawLine()
+        
+        if rsiLastVal < rsiVal
+            label.new(timeHigh-length, na, text=tostring(rsiVal), color=rsiLabelUpColor, textcolor=color.white, style=label.style_label_down, yloc=yloc.abovebar)
+        else
+            label.new(timeHigh-length, na, text=tostring(rsiVal), color=rsiLabelDownColor, textcolor=color.white, style=label.style_label_down, yloc=yloc.abovebar)
+        
+        rsiLastVal := rsiVal
+
+    if f_isMin(length) and low[length] < lastHigh
+        lastLow := low[length]
+        timeLow := bar_index
+        dirUp := true
+        li := f_drawLine()
+
+        if (f_isMax(length) and high[length] > lastLow)
+            lastHigh := high[length]
+            timeHigh := bar_index
+            dirUp := false
+            li := f_drawLine()
+            
+// CHANGELOG
+
+// 1.0a 
+//   - Fixed an error where sometimes a RSI Value level would not print 
+//     if there was a minor swing high between the major swing highs
+//   - Updated the Screenshot to adhere more to community standards (oops!)
+
+
