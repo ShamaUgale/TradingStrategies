@@ -1,13 +1,13 @@
 //@version=5
 indicator("1Hr TPS", overlay=true, max_lines_count=500, max_labels_count=500)
-// ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
 // INPUTS
 // ─────────────────────────────────────────────────────────────────────────────
 
 grp_in = "TPS INPUTS"
-i_d1 = input.time(timestamp("2025-07-01 09:15"), title="Date 1 (Latest date) |  Time 1", group=grp_in, confirm=false)
-i_d2 = input.time(timestamp("2025-02-19 09:15"), title="Date 2 (Previous date) |  Time 2", group=grp_in, confirm=false)
+i_d1 = input.time(timestamp("2026-01-01 09:15"), title=" Previous Date  |  Time  ", group=grp_in, confirm=false)
+i_d2 = input.time(timestamp("2026-01-19 09:15"), title="Latest Date  |  Time  ", group=grp_in, confirm=false)
 
 grp_s = "STYLE"
 i_col      = input.color(color.new(#FFFF88, 0), title="Line Color",  group=grp_s)
