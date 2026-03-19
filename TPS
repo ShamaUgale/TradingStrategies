@@ -1,0 +1,107 @@
+//@version=5
+indicator("1Hr TPS", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INPUTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+grp_in = "TPS INPUTS"
+i_d1 = input.time(timestamp("2025-07-01 09:15"), title="Date 1  |  Time 1", group=grp_in, confirm=false)
+i_d2 = input.time(timestamp("2025-02-19 09:15"), title="Date 2  |  Time 2", group=grp_in, confirm=false)
+
+grp_s = "STYLE"
+i_col      = input.color(color.new(#FFFF88, 0), title="Line Color",  group=grp_s)
+i_lw       = input.int(2, title="Line Width", minval=1, maxval=6,    group=grp_s)
+i_show_lbl = input.bool(true, title="Show Labels",                   group=grp_s)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+MS_PER_DAY = 86400000
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TPS CALCULATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+date1 = i_d1 - i_d1 % MS_PER_DAY
+date2 = i_d2 - i_d2 % MS_PER_DAY
+time1 = i_d1 % MS_PER_DAY
+time2 = i_d2 % MS_PER_DAY
+
+day_diff  = math.abs(date1 - date2) / MS_PER_DAY
+time_diff = math.abs(time1 - time2)
+
+proj_days = math.floor(day_diff * day_diff / 24)
+proj_ms   = proj_days * MS_PER_DAY
+
+// Target A: from Date1
+target_a = date1 + proj_ms + time1 + time_diff
+
+// Target B: from Date2
+target_b = date2 + proj_ms + time2 + time_diff
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DETECT MATCHING BARS
+// ─────────────────────────────────────────────────────────────────────────────
+
+tf_ms  = timeframe.in_seconds() * 1000
+hit_a  = time >= target_a and time < target_a + tf_ms
+hit_b  = time >= target_b and time < target_b + tf_ms
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAW VERTICAL LINES
+// ─────────────────────────────────────────────────────────────────────────────
+
+if hit_a
+    line.new(bar_index, high, bar_index, low,
+         extend=extend.both, color=i_col, width=i_lw, style=line.style_solid)
+    if i_show_lbl
+        label.new(bar_index, high,
+             text="S/R\n",
+             color=color.new(i_col, 80), textcolor=i_col,
+             style=label.style_label_down, size=size.small)
+
+if hit_b
+    line.new(bar_index, high, bar_index, low,
+         extend=extend.both, color=i_col, width=i_lw, style=line.style_dashed)
+    if i_show_lbl
+        label.new(bar_index, high,
+             text="Timing Candle\n",
+             color=color.new(i_col, 80), textcolor=i_col,
+             style=label.style_label_down, size=size.small)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INFO TABLE
+// ─────────────────────────────────────────────────────────────────────────────
+
+var table tbl = table.new(position.top_right, 2, 9,
+     bgcolor=color.new(#0D1117, 72),
+     border_color=color.new(color.gray, 60), border_width=1,
+     frame_color=color.new(color.gray, 40), frame_width=1)
+
+if barstate.islast
+    table.cell(tbl, 0, 0, "1Hr TPS",
+         text_color=color.white, text_size=size.normal,
+         bgcolor=color.new(#1565C0, 20), text_halign=text.align_center)
+    table.merge_cells(tbl, 0, 0, 1, 0)
+
+    table.cell(tbl, 0, 1, "Date 1", text_color=color.silver, text_size=size.small)
+    table.cell(tbl, 1, 1, str.format_time(i_d1, "dd MMM yy HH:mm", "Asia/Kolkata"),
+         text_color=color.white, text_size=size.small)
+
+    table.cell(tbl, 0, 2, "Date 2", text_color=color.silver, text_size=size.small)
+    table.cell(tbl, 1, 2, str.format_time(i_d2, "dd MMM yy HH:mm", "Asia/Kolkata"),
+         text_color=color.white, text_size=size.small)
+
+    table.cell(tbl, 0, 5, "Support/Resistance", text_color=i_col, text_size=size.small)
+    table.cell(tbl, 1, 5, str.format_time(target_a, "dd MMM yy HH:mm", "Asia/Kolkata"),
+         text_color=i_col, text_size=size.small)
+
+    table.cell(tbl, 0, 6, "▶ Timing candle to Trade", text_color=i_col, text_size=size.small)
+    table.cell(tbl, 1, 6, str.format_time(target_b, "dd MMM yy HH:mm", "Asia/Kolkata"),
+         text_color=i_col, text_size=size.small)
+
+    table.cell(tbl, 0, 7, "Solid = A  |  Dashed = B",
+         text_color=color.gray, text_size=size.tiny, text_halign=text.align_center)
+    table.merge_cells(tbl, 0, 7, 1, 7)
