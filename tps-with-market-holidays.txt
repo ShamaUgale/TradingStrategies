@@ -1,0 +1,207 @@
+//@version=5
+indicator("1Hr TPS", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INPUTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+grp_in = "TPS INPUTS"
+i_d1 = input.time(timestamp("2026-01-01 09:15"), title="Previous Date  |  Time  ", group=grp_in, confirm=false)
+i_d2 = input.time(timestamp("2026-01-19 09:15"), title="Latest Date    |  Time  ", group=grp_in, confirm=false)
+
+grp_s = "STYLE"
+i_col      = input.color(color.new(#FFFF88, 0), title="Line Color",  group=grp_s)
+i_lw       = input.int(2, title="Line Width", minval=1, maxval=6,    group=grp_s)
+i_show_lbl = input.bool(true, title="Show Labels",                   group=grp_s)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+MS_PER_DAY = 86400000
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TPS CALCULATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+date1 = i_d1 - i_d1 % MS_PER_DAY
+date2 = i_d2 - i_d2 % MS_PER_DAY
+time1 = i_d1 % MS_PER_DAY
+time2 = i_d2 % MS_PER_DAY
+
+day_diff  = math.abs(date1 - date2) / MS_PER_DAY
+time_diff = math.abs(time1 - time2)
+
+proj_days = math.floor(day_diff * day_diff / 24)
+proj_ms   = proj_days * MS_PER_DAY
+
+// Target A: from Date1
+target_a = date1 + proj_ms + time1 + time_diff
+
+// Target B: from Date2
+target_b = date2 + proj_ms + time2 + time_diff
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DETECT MATCHING BARS — with next-candle fallback
+//
+// Logic:
+//   exact hit   → this bar's timestamp falls within the target candle window
+//   fallback hit → the target time has already passed (market was closed then)
+//                  AND this target has not been drawn yet
+//                  → fires on the very FIRST bar that opens after the target
+//
+// var bool flags ensure each target draws exactly once even on fallback.
+// ─────────────────────────────────────────────────────────────────────────────
+
+tf_ms = timeframe.in_seconds() * 1000
+
+var bool drawn_a = false
+var bool drawn_b = false
+
+// Exact match: this bar IS the projected candle
+exact_a = time >= target_a and time < target_a + tf_ms
+exact_b = time >= target_b and time < target_b + tf_ms
+
+// Fallback: target window has closed, not yet drawn → mark the next live candle
+fallback_a = not drawn_a and time > target_a + tf_ms
+fallback_b = not drawn_b and time > target_b + tf_ms
+
+hit_a = exact_a or fallback_a
+hit_b = exact_b or fallback_b
+
+// Lock each target after first draw so fallback only fires once
+if hit_a
+    drawn_a := true
+if hit_b
+    drawn_b := true
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STORE HIGH/LOW OF MATCHED CANDLES
+// ─────────────────────────────────────────────────────────────────────────────
+
+var float hi_a = na
+var float lo_a = na
+var float hi_b = na
+var float lo_b = na
+
+if hit_a
+    hi_a := high
+    lo_a := low
+
+if hit_b
+    hi_b := high
+    lo_b := low
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COLORS
+// ─────────────────────────────────────────────────────────────────────────────
+
+col_high = color.new(#2979FF, 0)   // blue – high
+col_low  = color.new(#FF1744, 0)   // red  – low
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAW — vertical TPS line + horizontal high/low lines
+// ─────────────────────────────────────────────────────────────────────────────
+
+if hit_a
+    is_fallback = not exact_a
+    lbl = is_fallback ? "S/R ⟳" : "S/R"
+
+    // Vertical line
+    line.new(bar_index, high, bar_index, low,
+         extend=extend.both, color=i_col, width=i_lw, style=line.style_solid)
+    // Horizontal HIGH (blue)
+    line.new(bar_index - 1, high, bar_index, high,
+         extend=extend.both, color=col_high, width=i_lw, style=line.style_solid)
+    // Horizontal LOW (red)
+    line.new(bar_index - 1, low, bar_index, low,
+         extend=extend.both, color=col_low, width=i_lw, style=line.style_solid)
+
+    if i_show_lbl
+        label.new(bar_index, high,
+             text=lbl + "\n" + str.format_time(target_a, "dd MMM yy\nHH:mm", "Asia/Kolkata"),
+             color=color.new(i_col, 80), textcolor=i_col,
+             style=label.style_label_down, size=size.small)
+        label.new(bar_index, high,
+             text="H: " + str.tostring(high, "#.##"),
+             color=color.new(col_high, 80), textcolor=col_high,
+             style=label.style_label_left, size=size.tiny)
+        label.new(bar_index, low,
+             text="L: " + str.tostring(low, "#.##"),
+             color=color.new(col_low, 80), textcolor=col_low,
+             style=label.style_label_left, size=size.tiny)
+
+if hit_b
+    is_fallback = not exact_b
+    lbl = is_fallback ? "Timing Candle ⟳" : "Timing Candle"
+
+    // Vertical line (dashed to distinguish from A)
+    line.new(bar_index, high, bar_index, low,
+         extend=extend.both, color=i_col, width=i_lw, style=line.style_dashed)
+    // Horizontal HIGH (blue, dashed)
+    line.new(bar_index - 1, high, bar_index, high,
+         extend=extend.both, color=col_high, width=i_lw, style=line.style_dashed)
+    // Horizontal LOW (red, dashed)
+    line.new(bar_index - 1, low, bar_index, low,
+         extend=extend.both, color=col_low, width=i_lw, style=line.style_dashed)
+
+    if i_show_lbl
+        label.new(bar_index, high,
+             text=lbl + "\n" + str.format_time(target_b, "dd MMM yy\nHH:mm", "Asia/Kolkata"),
+             color=color.new(i_col, 80), textcolor=i_col,
+             style=label.style_label_down, size=size.small)
+        label.new(bar_index, high,
+             text="H: " + str.tostring(high, "#.##"),
+             color=color.new(col_high, 80), textcolor=col_high,
+             style=label.style_label_left, size=size.tiny)
+        label.new(bar_index, low,
+             text="L: " + str.tostring(low, "#.##"),
+             color=color.new(col_low, 80), textcolor=col_low,
+             style=label.style_label_left, size=size.tiny)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INFO TABLE
+// ─────────────────────────────────────────────────────────────────────────────
+
+var table tbl = table.new(position.top_right, 2, 13,
+     bgcolor=color.new(#0D1117, 72),
+     border_color=color.new(color.gray, 60), border_width=1,
+     frame_color=color.new(color.gray, 40), frame_width=1)
+
+if barstate.islast
+    table.cell(tbl, 0, 0, "1Hr TPS",
+         text_color=color.white, text_size=size.normal,
+         bgcolor=color.new(#1565C0, 20), text_halign=text.align_center)
+    table.merge_cells(tbl, 0, 0, 1, 0)
+
+    table.cell(tbl, 0, 1, "Date 1", text_color=color.silver, text_size=size.small)
+    table.cell(tbl, 1, 1, str.format_time(i_d1, "dd MMM yy HH:mm", "Asia/Kolkata"),
+         text_color=color.white, text_size=size.small)
+
+    table.cell(tbl, 0, 2, "Date 2", text_color=color.silver, text_size=size.small)
+    table.cell(tbl, 1, 2, str.format_time(i_d2, "dd MMM yy HH:mm", "Asia/Kolkata"),
+         text_color=color.white, text_size=size.small)
+
+    table.cell(tbl, 0, 5, "▶ S/R (Target)", text_color=i_col, text_size=size.small)
+    table.cell(tbl, 1, 5, str.format_time(target_a, "dd MMM yy HH:mm", "Asia/Kolkata"),
+         text_color=i_col, text_size=size.small)
+
+    table.cell(tbl, 0, 6, "  High", text_color=col_high, text_size=size.small)
+    table.cell(tbl, 1, 6, na(hi_a) ? "—" : str.tostring(hi_a, "#.##"),
+         text_color=col_high, text_size=size.small)
+
+    table.cell(tbl, 0, 7, "  Low", text_color=col_low, text_size=size.small)
+    table.cell(tbl, 1, 7, na(lo_a) ? "—" : str.tostring(lo_a, "#.##"),
+         text_color=col_low, text_size=size.small)
+
+    table.cell(tbl, 0, 8, "▶ Timing Candle", text_color=i_col, text_size=size.small)
+    table.cell(tbl, 1, 8, str.format_time(target_b, "dd MMM yy HH:mm", "Asia/Kolkata"),
+         text_color=i_col, text_size=size.small)
+
+    table.cell(tbl, 0, 9, "  High", text_color=col_high, text_size=size.small)
+    table.cell(tbl, 1, 9, na(hi_b) ? "—" : str.tostring(hi_b, "#.##"),
+         text_color=col_high, text_size=size.small)
+
+    table.cell(tbl, 0, 10, "  Low", text_color=col_low, text_size=size.small)
+    table.cell(tbl, 1, 10, na(lo_b) ? "—" : str.tostring(lo_b, "#.##"),
+         text_color=col_low, text_size=size.small)
