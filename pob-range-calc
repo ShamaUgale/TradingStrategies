@@ -1,0 +1,328 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0
+// © POB & Range Calc Indicator
+
+//@version=5
+indicator("Shama - POB & Range Calc", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INPUTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+grp_main    = "PURITY OF BREAKOUT OR RANGE CALCULATION"
+i_mode      = input.string("Purity of Breakout", title="Select",    options=["Purity of Breakout", "Range Calculation"], group=grp_main)
+i_range_for = input.string("Weekly",             title="Range for:", options=["Weekly", "Monthly"],                      group=grp_main)
+
+grp_pob      = "PURITY OF BREAKOUT"
+i_pob_select = input.string("Fixed high low", title="Select", options=["Fixed high low", "Candle high low"], group=grp_pob)
+i_fixed_high = input.float(0.0, title="Fixed High",    group=grp_pob)
+i_fixed_low  = input.float(0.0, title="Fixed Low",     group=grp_pob)
+i_start_time = input.time(timestamp("2024-01-01 09:15"), title="Starting Candle", group=grp_pob, confirm=false)
+i_end_time   = input.time(timestamp("2024-01-01 09:30"), title="Ending Candle",   group=grp_pob, confirm=false)
+
+grp_range     = "RANGE CALCULATION INPUTS"
+i_close_price = input.float(23560.0, title="Weekly/Monthly Close Price", group=grp_range)
+i_vix         = input.float(22.65,   title="VIX Monthly Closing",       group=grp_range)
+i_days_expiry = input.int(5,         title="Days to Expiry",            group=grp_range)
+
+grp_line     = "LINE STYLE"
+i_line_width = input.int(2, title="Line width", minval=1, maxval=10, group=grp_line)
+i_line_style = input.string("Solid", title="Line Style", options=["Solid", "Dashed", "Dotted"], group=grp_line)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COLORS
+// ─────────────────────────────────────────────────────────────────────────────
+
+col_sl      = color.new(#FFFF88, 0)   // light yellow  – stop loss
+col_dec     = color.new(#66FF66, 0)   // light green   – ONM & DECIDER
+col_up      = color.new(#2979FF, 0)   // blue          – upper T1-T4
+col_dn      = color.new(#FF1744, 0)   // red           – lower T1-T4
+col_range_h = color.new(#1c54b2, 0)   // cyan          – range high E
+col_range_l = color.new(#FF1744, 0)   // orange-red    – range low  F
+col_bull    = color.new(#00E676, 0)   // green         – bull targets
+col_bear    = color.new(#FF5252, 0)   // red           – bear targets
+col_bull_t3 = color.new(#69F0AE, 0)   // light green   – bull T3 extended
+col_bear_t3 = color.new(#FF8A80, 0)   // light red     – bear T3 extended
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+f_lstyle() =>
+    i_line_style == "Dashed" ? line.style_dashed :
+     i_line_style == "Dotted" ? line.style_dotted : line.style_solid
+
+f_hline(y, col, lbl) =>
+    line.new(bar_index - 1, y, bar_index, y,
+         extend=extend.both, color=col, width=i_line_width, style=f_lstyle())
+    label.new(bar_index, y, text=lbl,
+         color=color.new(col, 82), textcolor=col,
+         style=label.style_label_left, size=size.small)
+
+f_hline_dash(y, col, lbl) =>
+    line.new(bar_index - 1, y, bar_index, y,
+         extend=extend.both, color=col, width=i_line_width, style=line.style_dashed)
+    label.new(bar_index, y, text=lbl,
+         color=color.new(col, 82), textcolor=col,
+         style=label.style_label_left, size=size.small)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CANDLE HIGH/LOW AUTO-DETECTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+var float candle_high = na
+var float candle_low  = na
+
+if i_pob_select == "Candle high low"
+    if time >= i_start_time and time <= i_end_time
+        candle_high := na(candle_high) ? high : math.max(candle_high, high)
+        candle_low  := na(candle_low)  ? low  : math.min(candle_low,  low)
+
+ref_high = i_pob_select == "Fixed high low" ? i_fixed_high :
+           na(candle_high) ? i_fixed_high : candle_high
+ref_low  = i_pob_select == "Fixed high low" ? i_fixed_low  :
+           na(candle_low)  ? i_fixed_low  : candle_low
+
+rng = ref_high - ref_low
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POB CALCULATIONS — verified against Excel (two test cases)
+//
+//  step_a = 0.146 × range
+//  step_b = 0.236 × range
+//
+//  UPPER (break above ref_high):
+//    SL      = H − step_b                verified: 23493→23458
+//    ONM     = H + 1×step_a              verified: 23493→23514
+//    DECIDER = H + 1×step_b              verified: 23493→23528
+//    T1      = H + 6×step_a              verified: 23493→23622
+//    T2      = H + 6×step_b              verified: 23493→23701
+//    T3      = H + 10×step_a             verified: 23493→23708
+//    T4      = H + 10×step_b             verified: 23493→23840
+//
+//  LOWER (break below ref_low):
+//    SL      = L + step_b                verified: 23346→23381
+//    ONM     = L − 1×step_a              verified: 23346→23325
+//    DECIDER = L − 1×step_b              verified: 23346→23311
+//    T1      = L − 6×step_a              verified: 23346→23217
+//    T2      = L − 6×step_b              verified: 23346→23138
+//    T3      = L − 10×step_a             verified: 23346→23131
+//    T4      = L − 10×step_b             verified: 23346→22999
+// ─────────────────────────────────────────────────────────────────────────────
+
+step_a = 0.146 * rng
+step_b = 0.236 * rng
+
+up_sl  = ref_high - step_b
+up_onm = ref_high + 1  * step_a
+up_dec = ref_high + 1  * step_b
+up_t1  = ref_high + 6  * step_a
+up_t2  = ref_high + 6  * step_b
+up_t3  = ref_high + 10 * step_a
+up_t4  = ref_high + 10 * step_b
+
+dn_sl  = ref_low  + step_b
+dn_onm = ref_low  - 1  * step_a
+dn_dec = ref_low  - 1  * step_b
+dn_t1  = ref_low  - 6  * step_a
+dn_t2  = ref_low  - 6  * step_b
+dn_t3  = ref_low  - 10 * step_a
+dn_t4  = ref_low  - 10 * step_b
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RANGE CALCULATION — verified against Excel screenshot
+//
+//  The Excel uses 360 days/year (NOT 365):
+//    Weekly:  days_period = 360 / days_expiry  (e.g. 360/5 = 72)
+//    Monthly: days_period = 360 / days_expiry  (e.g. 360/30 = 12)
+//
+//  B   = sqrt(days_period)     Weekly: sqrt(72)=8.49   Monthly: sqrt(12)=3.464
+//  C   = VIX / 100
+//  D   = C / B
+//  AD  = Close × D             (half-range, called A*D in Excel)
+//  E   = Close + AD            (upper range band)
+//  F   = Close − AD            (lower range band)
+//  G   = E − F = 2×AD
+//
+//  Verified with Close=23560, VIX=22.65, days=5:
+//    days_period=72, B=8.49, C=0.2265, D=0.02669, AD=629
+//    E=24189, F=22931 ✓
+//    Bull T1=E+G/2=24818, T2=E+G=25447, T3=E+3G/2=26076 ✓
+//    Bear T1=F-G/2=22302, T2=F-G=21673, T3=F-3G/2=21044 ✓
+// ─────────────────────────────────────────────────────────────────────────────
+
+rc_days = 360.0 / i_days_expiry          // 360-day year as used in Excel
+rc_B    = math.sqrt(rc_days)
+rc_C    = i_vix / 100.0
+rc_D    = rc_C / rc_B
+rc_AD   = i_close_price * rc_D
+rc_E    = i_close_price + rc_AD          // upper range (E)
+rc_F    = i_close_price - rc_AD          // lower range (F)
+rc_G    = rc_E - rc_F                    // full range = 2×AD
+rc_h    = rc_G / 2.0
+
+// Targets
+rc_bull_t1 = rc_E + rc_h                 // E + G/2
+rc_bull_t2 = rc_E + rc_G                 // E + G   (Break Above)
+rc_bull_t3 = rc_E + rc_G + rc_h          // E + 3G/2
+rc_bear_t1 = rc_F - rc_h                 // F - G/2
+rc_bear_t2 = rc_F - rc_G                 // F - G   (Break Below)
+rc_bear_t3 = rc_F - rc_G - rc_h          // F - 3G/2
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAW  (last bar only)
+// ─────────────────────────────────────────────────────────────────────────────
+
+if barstate.islast
+
+    // ════════════════════════════════════════════
+    //  POB MODE — only POB lines drawn
+    // ════════════════════════════════════════════
+    if i_mode == "Purity of Breakout"
+
+        // Faint dotted reference candle range
+        line.new(bar_index - 1, ref_high, bar_index, ref_high,
+             extend=extend.both, color=color.new(color.white, 65), width=1, style=line.style_dotted)
+        line.new(bar_index - 1, ref_low,  bar_index, ref_low,
+             extend=extend.both, color=color.new(color.white, 65), width=1, style=line.style_dotted)
+
+        // ── UPPER ──
+        f_hline_dash(up_sl,  col_sl,  "SL ▲  ")
+        f_hline     (up_onm, col_dec, "ONM ▲  " )
+        f_hline     (up_dec, col_dec, "DECIDER ▲  " )
+        f_hline     (up_t1,  col_up,  "T1 ▲  " )
+        f_hline     (up_t2,  col_up,  "T2 ▲  " )
+        f_hline     (up_t3,  col_up,  "T3 ▲  " )
+        f_hline     (up_t4,  col_up,  "T4 ▲  " )
+
+        // ── LOWER ──
+        f_hline_dash(dn_sl,  col_sl,  "SL ▼  " )
+        f_hline     (dn_onm, col_dec, "ONM ▼  " )
+        f_hline     (dn_dec, col_dec, "DECIDER ▼  ")
+        f_hline     (dn_t1,  col_dn,  "T1 ▼  " )
+        f_hline     (dn_t2,  col_dn,  "T2 ▼  " )
+        f_hline     (dn_t3,  col_dn,  "T3 ▼  " )
+        f_hline     (dn_t4,  col_dn,  "T4 ▼  " )
+
+    // ════════════════════════════════════════════
+    //  RANGE CALCULATION MODE
+    // ════════════════════════════════════════════
+    else
+        // Pivot (close)
+       // f_hline(i_close_price, color.gray,  "PIVOT  "          + str.tostring(math.round(i_close_price), "##"))
+
+        // Range bands
+        f_hline(rc_E, col_range_h, "HIGH RANGE" )
+        f_hline(rc_F, col_range_l, "LOW RANGE" )
+
+        // Bullish targets
+        f_hline     (rc_bull_t1, col_bull,    "T1 " )
+        f_hline     (rc_bull_t2, col_bull,    "T2")
+        f_hline_dash(rc_bull_t3, col_bull_t3, "T3")
+
+        // Bearish targets
+        f_hline     (rc_bear_t1, col_bear,    "T1"  )
+        f_hline     (rc_bear_t2, col_bear,    "T2")
+        f_hline_dash(rc_bear_t3, col_bear_t3, "T3" )
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INFO TABLE  (top-right)
+// ─────────────────────────────────────────────────────────────────────────────
+
+var table tbl = table.new(position.top_right, 2, 22,
+     bgcolor=color.new(#0D1117, 70),
+     border_color=color.new(color.gray, 60), border_width=1,
+     frame_color=color.new(color.gray, 40), frame_width=1)
+
+if barstate.islast
+    // Header
+    table.cell(tbl, 0, 0, "POB & Range Calc",
+         text_color=color.white, text_size=size.normal,
+         bgcolor=color.new(#1565C0, 20), text_halign=text.align_center)
+    table.merge_cells(tbl, 0, 0, 1, 0)
+
+    table.cell(tbl, 0, 1, "Mode",  text_color=color.silver, text_size=size.small)
+    table.cell(tbl, 1, 1, i_mode,  text_color=color.yellow, text_size=size.small)
+
+    if i_mode == "Purity of Breakout"
+        // Inputs
+        table.cell(tbl, 0, 2, "Ref High", text_color=color.silver, text_size=size.small)
+        table.cell(tbl, 1, 2, str.tostring(ref_high, "#.##"), text_color=color.white, text_size=size.small)
+        table.cell(tbl, 0, 3, "Ref Low",  text_color=color.silver, text_size=size.small)
+        table.cell(tbl, 1, 3, str.tostring(ref_low,  "#.##"), text_color=color.white, text_size=size.small)
+        table.cell(tbl, 0, 4, "Range",    text_color=color.silver, text_size=size.small)
+        table.cell(tbl, 1, 4, str.tostring(rng,      "#.##"), text_color=color.white, text_size=size.small)
+
+        // Upper header
+        table.cell(tbl, 0, 5, "▲ UPPER", text_color=col_up, text_size=size.small,
+             text_halign=text.align_center, bgcolor=color.new(col_up, 88))
+        table.cell(tbl, 1, 5, "",          text_color=col_up, text_size=size.small,
+             bgcolor=color.new(col_up, 88))
+
+        table.cell(tbl, 0, 6,  "SL ▲",      text_color=col_sl,  text_size=size.small)
+        table.cell(tbl, 1, 6,  str.tostring(math.round(up_sl),  "##"), text_color=col_sl,  text_size=size.small)
+        table.cell(tbl, 0, 7,  "ONM ▲",     text_color=col_dec, text_size=size.small)
+        table.cell(tbl, 1, 7,  str.tostring(math.round(up_onm), "##"), text_color=col_dec, text_size=size.small)
+        table.cell(tbl, 0, 8,  "DECIDER ▲", text_color=col_dec, text_size=size.small)
+        table.cell(tbl, 1, 8,  str.tostring(math.round(up_dec), "##"), text_color=col_dec, text_size=size.small)
+        table.cell(tbl, 0, 9,  "T1 ▲",      text_color=col_up,  text_size=size.small)
+        table.cell(tbl, 1, 9,  str.tostring(math.round(up_t1),  "##"), text_color=col_up,  text_size=size.small)
+        table.cell(tbl, 0, 10, "T2 ▲",      text_color=col_up,  text_size=size.small)
+        table.cell(tbl, 1, 10, str.tostring(math.round(up_t2),  "##"), text_color=col_up,  text_size=size.small)
+        table.cell(tbl, 0, 11, "T3 ▲",      text_color=col_up,  text_size=size.small)
+        table.cell(tbl, 1, 11, str.tostring(math.round(up_t3),  "##"), text_color=col_up,  text_size=size.small)
+        table.cell(tbl, 0, 12, "T4 ▲",      text_color=col_up,  text_size=size.small)
+        table.cell(tbl, 1, 12, str.tostring(math.round(up_t4),  "##"), text_color=col_up,  text_size=size.small)
+
+        // Lower header
+        table.cell(tbl, 0, 13, "▼ LOWER", text_color=col_dn, text_size=size.small,
+             text_halign=text.align_center, bgcolor=color.new(col_dn, 88))
+        table.cell(tbl, 1, 13, "",          text_color=col_dn, text_size=size.small,
+             bgcolor=color.new(col_dn, 88))
+
+        table.cell(tbl, 0, 14, "SL ▼",      text_color=col_sl,  text_size=size.small)
+        table.cell(tbl, 1, 14, str.tostring(math.round(dn_sl),  "##"), text_color=col_sl,  text_size=size.small)
+        table.cell(tbl, 0, 15, "ONM ▼",     text_color=col_dec, text_size=size.small)
+        table.cell(tbl, 1, 15, str.tostring(math.round(dn_onm), "##"), text_color=col_dec, text_size=size.small)
+        table.cell(tbl, 0, 16, "DECIDER ▼", text_color=col_dec, text_size=size.small)
+        table.cell(tbl, 1, 16, str.tostring(math.round(dn_dec), "##"), text_color=col_dec, text_size=size.small)
+        table.cell(tbl, 0, 17, "T1 ▼",      text_color=col_dn,  text_size=size.small)
+        table.cell(tbl, 1, 17, str.tostring(math.round(dn_t1),  "##"), text_color=col_dn,  text_size=size.small)
+        table.cell(tbl, 0, 18, "T2 ▼",      text_color=col_dn,  text_size=size.small)
+        table.cell(tbl, 1, 18, str.tostring(math.round(dn_t2),  "##"), text_color=col_dn,  text_size=size.small)
+        table.cell(tbl, 0, 19, "T3 ▼",      text_color=col_dn,  text_size=size.small)
+        table.cell(tbl, 1, 19, str.tostring(math.round(dn_t3),  "##"), text_color=col_dn,  text_size=size.small)
+        table.cell(tbl, 0, 20, "T4 ▼",      text_color=col_dn,  text_size=size.small)
+        table.cell(tbl, 1, 20, str.tostring(math.round(dn_t4),  "##"), text_color=col_dn,  text_size=size.small)
+
+    else
+        // Range Calc table
+        table.cell(tbl, 0, 2,  "Range For",     text_color=color.silver,  text_size=size.small)
+        table.cell(tbl, 1, 2,  i_range_for,      text_color=color.yellow,  text_size=size.small)
+        table.cell(tbl, 0, 10, "High Range",   text_color=col_range_h,   text_size=size.small)
+        table.cell(tbl, 1, 10, str.tostring(math.round(rc_E), "##"), text_color=col_range_h,  text_size=size.small)
+        table.cell(tbl, 0, 11, "Low Range",    text_color=col_range_l,   text_size=size.small)
+        table.cell(tbl, 1, 11, str.tostring(math.round(rc_F), "##"), text_color=col_range_l,  text_size=size.small)
+
+        // Bullish header
+        table.cell(tbl, 0, 13, "▲ BULLISH", text_color=col_bull, text_size=size.small,
+             text_halign=text.align_center, bgcolor=color.new(col_bull, 88))
+        table.cell(tbl, 1, 13, "",            text_color=col_bull, text_size=size.small,
+             bgcolor=color.new(col_bull, 88))
+        table.cell(tbl, 0, 14, "Bull T1",     text_color=col_bull,    text_size=size.small)
+        table.cell(tbl, 1, 14, str.tostring(math.round(rc_bull_t1), "##"), text_color=col_bull,    text_size=size.small)
+        table.cell(tbl, 0, 15, "Bull T2 ↑",   text_color=col_bull,    text_size=size.small)
+        table.cell(tbl, 1, 15, str.tostring(math.round(rc_bull_t2), "##"), text_color=col_bull,    text_size=size.small)
+        table.cell(tbl, 0, 16, "Bull T3",     text_color=col_bull_t3, text_size=size.small)
+        table.cell(tbl, 1, 16, str.tostring(math.round(rc_bull_t3), "##"), text_color=col_bull_t3, text_size=size.small)
+
+        // Bearish header
+        table.cell(tbl, 0, 17, "▼ BEARISH", text_color=col_bear, text_size=size.small,
+             text_halign=text.align_center, bgcolor=color.new(col_bear, 88))
+        table.cell(tbl, 1, 17, "",            text_color=col_bear, text_size=size.small,
+             bgcolor=color.new(col_bear, 88))
+        table.cell(tbl, 0, 18, "Bear T1",     text_color=col_bear,    text_size=size.small)
+        table.cell(tbl, 1, 18, str.tostring(math.round(rc_bear_t1), "##"), text_color=col_bear,    text_size=size.small)
+        table.cell(tbl, 0, 19, "Bear T2 ↓",   text_color=col_bear,    text_size=size.small)
+        table.cell(tbl, 1, 19, str.tostring(math.round(rc_bear_t2), "##"), text_color=col_bear,    text_size=size.small)
+        table.cell(tbl, 0, 20, "Bear T3",     text_color=col_bear_t3, text_size=size.small)
+        table.cell(tbl, 1, 20, str.tostring(math.round(rc_bear_t3), "##"), text_color=col_bear_t3, text_size=size.small)
