@@ -1,13 +1,29 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0
+// © 1Hr TPS Indicator
+// Formula source: "Indian Market ONE HOUR" sheet
+//
+// VERIFIED FORMULA:
+//   day_diff  = |Date1 − Date2|  (whole days)
+//   time_diff = |Time1 − Time2|  (in ms)
+//   proj_days = floor( day_diff² / 24 )
+//
+//   Target A → date = Date1 + proj_days,  time = Time1 + time_diff
+//   Target B → date = Date2 + proj_days,  time = Time2 + time_diff
+//
+//   Verified: D1=2025-07-01 09:15, D2=2025-02-19 09:15
+//     day_diff=132, proj_days=726
+//     A → 2027-06-27 09:15 ✓   B → 2027-02-15 09:15 ✓
+
 //@version=5
 indicator("1Hr TPS", overlay=true, max_lines_count=500, max_labels_count=500)
-
 // ─────────────────────────────────────────────────────────────────────────────
+
 // INPUTS
 // ─────────────────────────────────────────────────────────────────────────────
 
 grp_in = "TPS INPUTS"
-i_d1 = input.time(timestamp("2025-07-01 09:15"), title="Date 1  |  Time 1", group=grp_in, confirm=false)
-i_d2 = input.time(timestamp("2025-02-19 09:15"), title="Date 2  |  Time 2", group=grp_in, confirm=false)
+i_d1 = input.time(timestamp("2025-07-01 09:15"), title="Date 1 (latest date should come here) |  Time 1", group=grp_in, confirm=false)
+i_d2 = input.time(timestamp("2025-02-19 09:15"), title="Date 2 (before date should come here) |  Time 2", group=grp_in, confirm=false)
 
 grp_s = "STYLE"
 i_col      = input.color(color.new(#FFFF88, 0), title="Line Color",  group=grp_s)
@@ -45,37 +61,87 @@ target_b = date2 + proj_ms + time2 + time_diff
 // DETECT MATCHING BARS
 // ─────────────────────────────────────────────────────────────────────────────
 
-tf_ms  = timeframe.in_seconds() * 1000
-hit_a  = time >= target_a and time < target_a + tf_ms
-hit_b  = time >= target_b and time < target_b + tf_ms
+tf_ms = timeframe.in_seconds() * 1000
+hit_a = time >= target_a and time < target_a + tf_ms
+hit_b = time >= target_b and time < target_b + tf_ms
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DRAW VERTICAL LINES
+// STORE HIGH/LOW OF MATCHED CANDLES
 // ─────────────────────────────────────────────────────────────────────────────
+
+var float hi_a = na
+var float lo_a = na
+var float hi_b = na
+var float lo_b = na
 
 if hit_a
+    hi_a := high
+    lo_a := low
+
+if hit_b
+    hi_b := high
+    lo_b := low
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAW VERTICAL LINES + HIGH/LOW HORIZONTAL LINES
+// ─────────────────────────────────────────────────────────────────────────────
+
+col_high = color.new(#2979FF, 0)   // blue  – high
+col_low  = color.new(#FF1744, 0)   // red   – low
+
+if hit_a
+    // Vertical TPS line
     line.new(bar_index, high, bar_index, low,
          extend=extend.both, color=i_col, width=i_lw, style=line.style_solid)
+    // Horizontal high — x1 != x2 so line is truly horizontal, extend both directions
+    line.new(bar_index - 1, high, bar_index, high,
+         extend=extend.both, color=col_high, width=i_lw, style=line.style_solid)
+    // Horizontal low
+    line.new(bar_index - 1, low, bar_index, low,
+         extend=extend.both, color=col_low, width=i_lw, style=line.style_solid)
     if i_show_lbl
         label.new(bar_index, high,
              text="S/R\n",
              color=color.new(i_col, 80), textcolor=i_col,
              style=label.style_label_down, size=size.small)
+        label.new(bar_index, high,
+             text="H: " + str.tostring(high, "#.##"),
+             color=color.new(col_high, 80), textcolor=col_high,
+             style=label.style_label_left, size=size.tiny)
+        label.new(bar_index, low,
+             text="L: " + str.tostring(low, "#.##"),
+             color=color.new(col_low, 80), textcolor=col_low,
+             style=label.style_label_left, size=size.tiny)
 
 if hit_b
+    // Vertical TPS line
     line.new(bar_index, high, bar_index, low,
          extend=extend.both, color=i_col, width=i_lw, style=line.style_dashed)
+    // Horizontal high
+    line.new(bar_index - 1, high, bar_index, high,
+         extend=extend.both, color=col_high, width=i_lw, style=line.style_dashed)
+    // Horizontal low
+    line.new(bar_index - 1, low, bar_index, low,
+         extend=extend.both, color=col_low, width=i_lw, style=line.style_dashed)
     if i_show_lbl
         label.new(bar_index, high,
              text="Timing Candle\n",
              color=color.new(i_col, 80), textcolor=i_col,
              style=label.style_label_down, size=size.small)
+        label.new(bar_index, high,
+             text="H: " + str.tostring(high, "#.##"),
+             color=color.new(col_high, 80), textcolor=col_high,
+             style=label.style_label_left, size=size.tiny)
+        label.new(bar_index, low,
+             text="L: " + str.tostring(low, "#.##"),
+             color=color.new(col_low, 80), textcolor=col_low,
+             style=label.style_label_left, size=size.tiny)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // INFO TABLE
 // ─────────────────────────────────────────────────────────────────────────────
 
-var table tbl = table.new(position.top_right, 2, 9,
+var table tbl = table.new(position.top_right, 2, 13,
      bgcolor=color.new(#0D1117, 72),
      border_color=color.new(color.gray, 60), border_width=1,
      frame_color=color.new(color.gray, 40), frame_width=1)
@@ -94,14 +160,10 @@ if barstate.islast
     table.cell(tbl, 1, 2, str.format_time(i_d2, "dd MMM yy HH:mm", "Asia/Kolkata"),
          text_color=color.white, text_size=size.small)
 
-    table.cell(tbl, 0, 5, "Support/Resistance", text_color=i_col, text_size=size.small)
+    table.cell(tbl, 0, 5, "▶ S/R", text_color=i_col, text_size=size.small)
     table.cell(tbl, 1, 5, str.format_time(target_a, "dd MMM yy HH:mm", "Asia/Kolkata"),
          text_color=i_col, text_size=size.small)
 
-    table.cell(tbl, 0, 6, "▶ Timing candle to Trade", text_color=i_col, text_size=size.small)
-    table.cell(tbl, 1, 6, str.format_time(target_b, "dd MMM yy HH:mm", "Asia/Kolkata"),
+    table.cell(tbl, 0, 8, "▶ Timing Candle", text_color=i_col, text_size=size.small)
+    table.cell(tbl, 1, 8, str.format_time(target_b, "dd MMM yy HH:mm", "Asia/Kolkata"),
          text_color=i_col, text_size=size.small)
-
-    table.cell(tbl, 0, 7, "Solid = A  |  Dashed = B",
-         text_color=color.gray, text_size=size.tiny, text_halign=text.align_center)
-    table.merge_cells(tbl, 0, 7, 1, 7)
