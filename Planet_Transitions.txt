@@ -1,0 +1,103 @@
+//@version=6
+indicator("Planetary Transitions", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ── Import the official high-accuracy ephemeris library
+import BlueprintResearch/blueprint_ephemeris_lib/1 as eph
+
+// ── INPUT GROUPS
+string g_planets = "Enabled Planets & Colors"
+string g_types   = "Transition Types to Show"
+
+// ── Per-planet checkboxes + color pickers
+bool   en_merc = input.bool(false, "☿ Mercury",           group = g_planets)
+color  col_merc = input.color(#00CCFF, "☿ Mercury Line Color", group = g_planets)
+
+bool   en_ven  = input.bool(false, "♀ Venus",             group = g_planets)
+color  col_ven  = input.color(#FF69B4, "♀ Venus Line Color",  group = g_planets)
+
+bool   en_mars = input.bool(false, "♂ Mars",              group = g_planets)
+color  col_mars = input.color(#FF4500, "♂ Mars Line Color",   group = g_planets)
+
+bool   en_jup  = input.bool(false, "♃ Jupiter",           group = g_planets)
+color  col_jup  = input.color(#FFD700, "♃ Jupiter Line Color",group = g_planets)
+
+bool   en_sat  = input.bool(false, "♄ Saturn",            group = g_planets)
+color  col_sat  = input.color(#808080, "♄ Saturn Line Color", group = g_planets)
+
+bool   en_ura  = input.bool(false, "♅ Uranus",            group = g_planets)
+color  col_ura  = input.color(#00FFFF, "♅ Uranus Line Color", group = g_planets)
+
+bool   en_nep  = input.bool(false, "♆ Neptune",           group = g_planets)
+color  col_nep  = input.color(#4169E1, "♆ Neptune Line Color",group = g_planets)
+
+bool   en_plu  = input.bool(false, "♇ Pluto",             group = g_planets)
+color  col_plu  = input.color(#9932CC, "♇ Pluto Line Color",  group = g_planets)
+
+// ── Global transition checkboxes
+bool show_direct  = input.bool(true,  "☉ Show Direct Stations (exits Retro)",  group = g_types)
+bool show_retro   = input.bool(true,  "☿ Show Retrograde Stations (enters Retro)", group = g_types)
+bool show_ingress = input.bool(true,  "♈ Show Sign Ingresses (enters new Zodiac Sign)", group = g_types)
+
+// ── Zodiac signs with symbols
+string[] signs = array.from("♈ Aries", "♉ Taurus", "♊ Gemini", "♋ Cancer", "♌ Leo", "♍ Virgo", 
+                           "♎ Libra", "♏ Scorpio", "♐ Sagittarius", "♑ Capricorn", "♒ Aquarius", "♓ Pisces")
+
+// ────────────────────────────────────────────────
+//  DEFINE THE FUNCTION HERE — BEFORE ANY CALLS
+// ────────────────────────────────────────────────
+process_planet(eph.Planet p, string p_name, string p_sym, color p_col) =>
+    float speed_n  = eph.get_speed(p, time)
+    float speed_p  = eph.get_speed(p, time[1])
+    float lon_n    = eph.get_longitude(p, time, true)
+    float lon_p    = eph.get_longitude(p, time[1], true)
+    
+    bool to_retro  = show_retro  and (speed_p >  0 and speed_n <= 0)
+    bool to_direct = show_direct and (speed_p <  0 and speed_n >= 0)
+    
+    int sign_n = math.floor(lon_n / 30) % 12
+    int sign_p = na(lon_p) ? na : math.floor(lon_p / 30) % 12
+    bool ing   = show_ingress and (sign_n != sign_p) and not na(sign_p)
+    
+    if to_retro or to_direct or ing
+        string full_text = na
+        if to_retro
+            full_text := p_sym + " " + p_name + " - Retro"
+        else if to_direct
+            full_text := p_sym + " " + p_name + " - Direct"
+        else if ing
+            full_text := p_sym + " " + p_name + " → " + array.get(signs, sign_n)
+        
+        line.new(bar_index, -1e10, bar_index, 1e10,
+             color = p_col, width = 2, style = line.style_solid, extend = extend.both)
+        
+        label.new(bar_index, high, full_text,
+             color = color.new(p_col, 70),
+             textcolor = color.white,
+             style = label.style_label_down,
+             size = size.small,
+             yloc = yloc.abovebar)
+
+// ── NOW call the function for each enabled planet
+if en_merc
+    process_planet(eph.Planet.Mercury, "Mercury", "☿", col_merc)
+
+if en_ven
+    process_planet(eph.Planet.Venus, "Venus", "♀", col_ven)
+
+if en_mars
+    process_planet(eph.Planet.Mars, "Mars", "♂", col_mars)
+
+if en_jup
+    process_planet(eph.Planet.Jupiter, "Jupiter", "♃", col_jup)
+
+if en_sat
+    process_planet(eph.Planet.Saturn, "Saturn", "♄", col_sat)
+
+if en_ura
+    process_planet(eph.Planet.Uranus, "Uranus", "♅", col_ura)
+
+if en_nep
+    process_planet(eph.Planet.Neptune, "Neptune", "♆", col_nep)
+
+if en_plu
+    process_planet(eph.Planet.Pluto, "Pluto", "♇", col_plu)
