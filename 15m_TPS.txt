@@ -1,0 +1,192 @@
+//@version=5
+indicator("15mins TPS", overlay = true,
+     max_lines_count  = 20,
+     max_labels_count = 20)
+
+// ─── INPUTS ──────────────────────────────────────────────────────────────────
+var string G1 = "● Dates  (PREV first, LATEST second)"
+prev_dt   = input.time(defval = timestamp("2026-01-08 11:15"),
+     title = "① PREV Date & Time  (d1 + t1)",    group = G1)
+latest_dt = input.time(defval = timestamp("2026-01-30 15:15"),
+     title = "② LATEST Date & Time (d2 + t2)",   group = G1)
+
+var string G2 = "● Visual Settings"
+col_vline = input.color(color.new(#1bdbed, 0),   title = "Vertical line colour", group = G2)
+col_high  = input.color(color.new(color.blue, 0), title = "High line colour",     group = G2)
+col_low   = input.color(color.new(color.red,  0), title = "Low line colour",      group = G2)
+lw        = input.int  (2, minval = 1, maxval = 5, title = "Line width",          group = G2)
+show_lbl  = input.bool (true,                     title = "Show price labels",    group = G2)
+
+// ─── FORMULA ─────────────────────────────────────────────────────────────────
+var int MS_PER_DAY = 86400000
+var int IST_MS     = 19800000   
+
+d1_midnight = prev_dt   - (prev_dt   + IST_MS) % MS_PER_DAY
+d2_midnight = latest_dt - (latest_dt + IST_MS) % MS_PER_DAY
+dayDiff     = (d2_midnight - d1_midnight) / MS_PER_DAY
+
+square  = dayDiff * dayDiff
+temp1   = square  / 24.0
+temp2   = temp1   / 4.0          
+
+int_days   = int(math.floor(temp2))
+sr_date_ms = d1_midnight + int_days * MS_PER_DAY   
+tm_date_ms = d2_midnight + int_days * MS_PER_DAY   
+
+
+t1_ms     = (prev_dt   + IST_MS) % MS_PER_DAY   
+t2_ms     = (latest_dt + IST_MS) % MS_PER_DAY  
+timeDiff  = math.abs(t2_ms - t1_ms)
+timeDiff4 = timeDiff / 4
+
+
+var int MS_15MIN = 900000
+sr_time_raw = math.floor((t1_ms + timeDiff4) / MS_15MIN) * MS_15MIN
+tm_time_raw = math.floor((t2_ms + timeDiff4) / MS_15MIN) * MS_15MIN
+
+sr_carry   = sr_time_raw >= MS_PER_DAY ? MS_PER_DAY : 0   
+tm_carry   = tm_time_raw >= MS_PER_DAY ? MS_PER_DAY : 0   
+sr_time_ms = sr_time_raw % MS_PER_DAY
+tm_time_ms = tm_time_raw % MS_PER_DAY
+
+sr_ts = sr_date_ms + sr_carry + sr_time_ms
+tm_ts = tm_date_ms + tm_carry + tm_time_ms
+
+var float tm_h     = na
+var float tm_l     = na
+var bool  tm_drawn = false
+
+var float sr_h     = na
+var float sr_l     = na
+var bool  sr_drawn = false
+
+if time >= tm_ts and not tm_drawn
+    tm_h     := high
+    tm_l     := low
+    tm_drawn := true
+
+    // Vertical line on the timing candle
+    line.new(x1 = bar_index, y1 = low  * 0.9990,
+             x2 = bar_index, y2 = high * 1.0010,
+             xloc = xloc.bar_index, color = col_vline, width = lw + 1)
+
+    // Timing High — solid blue, full horizontal across chart
+    line.new(x1 = bar_index, y1 = high, x2 = bar_index + 1, y2 = high,
+             xloc = xloc.bar_index, extend = extend.both,
+             color = col_high, width = lw, style = line.style_solid)
+
+    // Timing Low — solid red, full horizontal across chart
+    line.new(x1 = bar_index, y1 = low, x2 = bar_index + 1, y2 = low,
+             xloc = xloc.bar_index, extend = extend.both,
+             color = col_low, width = lw, style = line.style_solid)
+
+    if show_lbl
+        label.new(x = bar_index, y = high * 1.001, text = "TPS",
+             xloc = xloc.bar_index, color = col_vline, textcolor = color.black,
+             style = label.style_label_down, size = size.normal)
+        label.new(x = bar_index, y = high,
+             text = "TPS H " + str.tostring(high, format.mintick),
+             xloc = xloc.bar_index, color = col_high, textcolor = color.white,
+             style = label.style_label_right, size = size.small)
+        label.new(x = bar_index, y = low,
+             text = "TPS L " + str.tostring(low, format.mintick),
+             xloc = xloc.bar_index, color = col_low, textcolor = color.white,
+             style = label.style_label_right, size = size.small)
+
+if time >= sr_ts and not sr_drawn
+    sr_h     := high
+    sr_l     := low
+    sr_drawn := true
+
+    line.new(x1 = bar_index, y1 = low  * 0.9990,
+             x2 = bar_index, y2 = high * 1.0010,
+             xloc = xloc.bar_index, color = col_vline, width = lw + 1)
+
+    line.new(x1 = bar_index, y1 = high, x2 = bar_index + 1, y2 = high,
+             xloc = xloc.bar_index, extend = extend.both,
+             color = col_high, width = lw, style = line.style_dashed)
+
+    line.new(x1 = bar_index, y1 = low, x2 = bar_index + 1, y2 = low,
+             xloc = xloc.bar_index, extend = extend.both,
+             color = col_low, width = lw, style = line.style_dashed)
+
+    if show_lbl
+        label.new(x = bar_index, y = high,
+             text = "S/R H " + str.tostring(high, format.mintick),
+             xloc = xloc.bar_index, color = col_high, textcolor = color.white,
+             style = label.style_label_right, size = size.small)
+        label.new(x = bar_index, y = low,
+             text = "S/R L " + str.tostring(low, format.mintick),
+             xloc = xloc.bar_index, color = col_low, textcolor = color.white,
+             style = label.style_label_right, size = size.small)
+
+bgcolor(time >= tm_ts and not tm_drawn[1] ? color.new(#00BFFF, 80)    : na,
+     title = "Timing candle tint")
+bgcolor(time >= sr_ts and not sr_drawn[1] ? color.new(color.blue, 85) : na,
+     title = "S/R candle tint")
+
+var color C_HDR = color.new(#1565C0, 20)
+var color C_DIV = color.new(#1E2A3A, 55)
+var color C_BG  = color.new(#0D1117, 72)
+var color C_LBL = color.rgb(8, 171, 62)
+var color C_VAL = color.rgb(11, 199, 102)
+var color C_CAL = color.new(#00BFFF, 0)
+var color heading1 = color.new(#fbff00, 0)
+
+var table tbl = table.new(position.top_right, 2, 18,
+     bgcolor      = C_BG,
+     border_color = color.new(color.gray, 60), border_width = 1,
+     frame_color  = color.new(color.gray, 40), frame_width  = 1)
+
+if barstate.islast
+
+    sr_tod_f     = math.floor(sr_time_ms / 900000) * 900000
+    tm_tod_f     = math.floor(tm_time_ms / 900000) * 900000
+    sr_time_str  = str.tostring(int(sr_tod_f / 3600000), "00") + ":" +
+                   str.tostring(int(sr_tod_f % 3600000 / 60000), "00")
+    tm_time_str  = str.tostring(int(tm_tod_f / 3600000), "00") + ":" +
+                   str.tostring(int(tm_tod_f % 3600000 / 60000), "00")
+
+    td_hrs  = int(timeDiff  / 3600000)
+    td_mins = int(timeDiff  % 3600000 / 60000)
+    td4_hrs = int(timeDiff4 / 3600000)
+    td4_min = int(timeDiff4 % 3600000 / 60000)
+
+    table.cell(tbl, 0, 0, "15mins  TPS",
+         text_color = heading1, text_size = size.normal,
+         bgcolor = C_HDR, text_halign = text.align_center)
+    table.merge_cells(tbl, 0, 0, 1, 0)
+
+    table.cell(tbl, 0, 1, "PREV Date ",  text_color = C_LBL, text_size = size.small, bgcolor = C_BG)
+    table.cell(tbl, 1, 1, str.format_time(prev_dt,   "dd MMM yy  HH:mm", "Asia/Kolkata"),
+         text_color = C_VAL, text_size = size.small, bgcolor = C_BG)
+    table.cell(tbl, 0, 2, "LATEST date ", text_color = C_LBL, text_size = size.small, bgcolor = C_BG)
+    table.cell(tbl, 1, 2, str.format_time(latest_dt, "dd MMM yy  HH:mm", "Asia/Kolkata"),
+         text_color = C_VAL, text_size = size.small, bgcolor = C_BG)
+
+    table.cell(tbl, 0, 11, "▶ S/R Candle : ",  text_color = col_high, text_size = size.small, bgcolor = C_BG)
+    table.cell(tbl, 1, 11,
+         str.format_time(sr_ts, "dd MMM yy", "Asia/Kolkata") + "  " + sr_time_str,
+         text_color = col_high, text_size = size.small, bgcolor = C_BG)
+
+    table.cell(tbl, 0, 12, "  High",        text_color = col_high, text_size = size.small, bgcolor = C_BG)
+    table.cell(tbl, 1, 12, na(sr_h) ? "—" : str.tostring(sr_h, "#.##"),
+         text_color = col_high, text_size = size.small, bgcolor = C_BG)
+
+    table.cell(tbl, 0, 13, "  Low",         text_color = col_low,  text_size = size.small, bgcolor = C_BG)
+    table.cell(tbl, 1, 13, na(sr_l) ? "—" : str.tostring(sr_l, "#.##"),
+         text_color = col_low,  text_size = size.small, bgcolor = C_BG)
+
+    table.cell(tbl, 0, 15, "▶ Timing Candle : ",  text_color = col_vline, text_size = size.small, bgcolor = C_BG)
+    table.cell(tbl, 1, 15,
+         str.format_time(tm_ts, "dd MMM yy", "Asia/Kolkata") + "  " + tm_time_str,
+         text_color = col_vline, text_size = size.small, bgcolor = C_BG)
+
+    table.cell(tbl, 0, 16, "  High",        text_color = col_high, text_size = size.small, bgcolor = C_BG)
+    table.cell(tbl, 1, 16, na(tm_h) ? "—" : str.tostring(tm_h, "#.##"),
+         text_color = col_high, text_size = size.small, bgcolor = C_BG)
+
+    table.cell(tbl, 0, 17, "  Low",         text_color = col_low,  text_size = size.small, bgcolor = C_BG)
+    table.cell(tbl, 1, 17, na(tm_l) ? "—" : str.tostring(tm_l, "#.##"),
+         text_color = col_low,  text_size = size.small, bgcolor = C_BG)
+
