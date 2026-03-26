@@ -1,0 +1,120 @@
+//@version=6
+indicator("Planetary Transitions & Eclipses", shorttitle="Astro Transitions", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ── Import ephemeris
+import BlueprintResearch/blueprint_ephemeris_lib/1 as eph
+
+// ── INPUT GROUPS
+string g_planets  = "Enabled Planets & Colors (Stations/Ingress)"
+string g_eclipses = "Eclipses & Lunations"
+string g_types    = "Transition Types"
+
+// ── Planets
+en_merc = input.bool(false, "☿ Mercury", group=g_planets)
+col_merc = input.color(#00CCFF, "☿ Mercury Color", group=g_planets)
+
+en_ven  = input.bool(false, "♀ Venus", group=g_planets)
+col_ven  = input.color(#FF69B4, "♀ Venus Color", group=g_planets)
+
+en_mars = input.bool(false, "♂ Mars", group=g_planets)
+col_mars = input.color(#FF4500, "♂ Mars Color", group=g_planets)
+
+en_jup  = input.bool(false, "♃ Jupiter", group=g_planets)
+col_jup  = input.color(#FFD700, "♃ Jupiter Color", group=g_planets)
+
+en_sat  = input.bool(false, "♄ Saturn", group=g_planets)
+col_sat  = input.color(#808080, "♄ Saturn Color", group=g_planets)
+
+en_ura  = input.bool(false, "♅ Uranus", group=g_planets)
+col_ura  = input.color(#00FFFF, "♅ Uranus Color", group=g_planets)
+
+en_nep  = input.bool(false, "♆ Neptune", group=g_planets)
+col_nep  = input.color(#4169E1, "♆ Neptune Color", group=g_planets)
+
+en_plu  = input.bool(false, "♇ Pluto", group=g_planets)
+col_plu  = input.color(#9932CC, "♇ Pluto Color", group=g_planets)
+
+// ── Eclipses / Lunations
+show_newmoon  = input.bool(true, "New Moon", group=g_eclipses)
+show_fullmoon = input.bool(true, "Full Moon", group=g_eclipses)
+col_eclipse = input.color(color.red, "Eclipse Color", group=g_eclipses)
+
+// ── Transitions
+show_direct  = input.bool(true, "Direct", group=g_types)
+show_retro   = input.bool(true, "Retro", group=g_types)
+show_ingress = input.bool(true, "Ingress", group=g_types)
+
+// ── Zodiac
+signs = array.from("♈ Aries","♉ Taurus","♊ Gemini","♋ Cancer","♌ Leo","♍ Virgo",
+                   "♎ Libra","♏ Scorpio","♐ Sagittarius","♑ Capricorn","♒ Aquarius","♓ Pisces")
+
+// ── PLANET PROCESS
+process_planet(p, name, sym, col) =>
+    speed_n = eph.get_speed(p, time)
+    speed_p = eph.get_speed(p, time[1])
+    lon_n   = eph.get_longitude(p, time, true)
+    lon_p   = eph.get_longitude(p, time[1], true)
+
+    to_retro  = show_retro  and (speed_p > 0 and speed_n <= 0)
+    to_direct = show_direct and (speed_p < 0 and speed_n >= 0)
+
+    sign_n = math.floor(lon_n / 30) % 12
+    sign_p = na(lon_p) ? na : math.floor(lon_p / 30) % 12
+    ing    = show_ingress and (sign_n != sign_p) and not na(sign_p)
+
+    if to_retro or to_direct or ing
+        txt = to_retro ? sym + " " + name + " Retrograde" :
+              to_direct ? sym + " " + name + " Direct" :
+              sym + " " + name + " → " + array.get(signs, sign_n)
+
+        line.new(bar_index, -1e10, bar_index, 1e10, color=col, width=2, extend=extend.both)
+        label.new(
+             bar_index, 
+             high, 
+             txt, 
+             color=color.new(col, 70), 
+             textcolor=color.white, 
+             style=label.style_label_down
+         )
+
+// ── LUNATIONS
+process_lunations() =>
+    sun  = eph.get_longitude(eph.Planet.Sun, time, true)
+    moon = eph.get_longitude(eph.Planet.Moon, time, true)
+
+    diff = math.abs((sun - moon + 180) % 360 - 180)
+
+    if show_newmoon and diff <= 5
+        line.new(bar_index, -1e10, bar_index, 1e10, color=col_eclipse)
+        label.new(bar_index, low, "🌑 New Moon", color=color.new(col_eclipse, 70), textcolor=color.white, style=label.style_label_up)
+
+    if show_fullmoon and math.abs(diff - 180) <= 5
+        line.new(bar_index, -1e10, bar_index, 1e10, color=col_eclipse)
+        label.new(bar_index, low, "🌕 Full Moon", color=color.new(col_eclipse, 70), textcolor=color.white, style=label.style_label_up)
+
+// ── CALLS
+if en_merc
+    process_planet(eph.Planet.Mercury, "Mercury", "☿", col_merc)
+
+if en_ven
+    process_planet(eph.Planet.Venus, "Venus", "♀", col_ven)
+
+if en_mars
+    process_planet(eph.Planet.Mars, "Mars", "♂", col_mars)
+
+if en_jup
+    process_planet(eph.Planet.Jupiter, "Jupiter", "♃", col_jup)
+
+if en_sat
+    process_planet(eph.Planet.Saturn, "Saturn", "♄", col_sat)
+
+if en_ura
+    process_planet(eph.Planet.Uranus, "Uranus", "♅", col_ura)
+
+if en_nep
+    process_planet(eph.Planet.Neptune, "Neptune", "♆", col_nep)
+
+if en_plu
+    process_planet(eph.Planet.Pluto, "Pluto", "♇", col_plu)
+
+process_lunations()
